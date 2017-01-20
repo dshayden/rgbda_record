@@ -1,0 +1,58 @@
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <stdexcept>
+#include <vector>
+#include <time.h>
+#include <inttypes.h>
+#include <thread>
+#include <atomic>
+#include <stdio.h>
+#include <fstream>
+#include <chrono>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+
+#include "RealSenseCamera.hpp"
+
+#include <opencv2/opencv.hpp>
+#include "opencv2/core.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/videoio.hpp"
+
+// #include "VideoWriter.hpp"
+// #include "audiorecorder.hpp"
+
+int main(int argc, const char * argv[]) {
+  RealSenseCamera rsc;
+  std::vector<std::string> devices = rsc.GetDeviceNames();
+  for (auto name : devices) {
+    std::cout << name << std::endl;
+  }
+  if (devices.size() == 0) return 0;
+  else rsc.ActivateDevice(0);
+  std::cout << rsc.GetCalibrationString() << std::endl;
+
+  cv::Mat rgb, depth, depthCmap, depthViz, rgbResize, depResize;
+  double rgbTs, depthTs;
+  while (true) {
+    rsc.GetFrame(rgb, depth, rgbTs, depthTs);
+    // cv::resize(rgb, rgbResize, cv::Size(960, 540));
+    // cv::imshow("Color (q to close)", rgbResize);
+
+    depth.convertTo(depthViz, CV_8U, 255.0 / 10000);
+    applyColorMap(depthViz, depthCmap, cv::COLORMAP_JET);
+    // cv::resize(depthCmap, depResize, cv::Size(640, 480));
+    // cv::imshow("Depth (q to close)", depResize);
+    cv::imshow("Depth (q to close)", depthCmap);
+
+    cv::imshow("Color (q to close)", rgb);
+
+    int key = cv::waitKey(30);
+    if ( key == 'q'  || key == 'Q' ) break;
+  }
+  return 0;
+}
