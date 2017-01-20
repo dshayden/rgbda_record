@@ -62,6 +62,12 @@ extern "C" {
 //     pkt->stream_index);
 // }
 
+struct InvalidStateException : public exception {
+  const char * what () const throw () {
+    return "Invalid State Exception, could not create file.";
+  }
+};
+
 void VideoWriter::Close() {
   if (!ok) return;
   int ret, gotOutput;
@@ -263,7 +269,10 @@ VideoWriter::VideoWriter(string _filename, int _fps, int _width, int _height,
     cerr << "Could not allocate bgr or yuv frames, invalid state.\n";
   
   err = avio_open(&oc->pb, filename.c_str(), AVIO_FLAG_WRITE);
-  if (err < 0) cerr << "Could not open output file, invalid state.\n";
+  if (err < 0) {
+    cerr << "Could not open output file, invalid state.\n";
+    throw InvalidStateException();
+  }
 
   err = avformat_write_header(oc, NULL);
   if (err < 0) {

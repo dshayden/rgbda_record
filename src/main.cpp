@@ -203,13 +203,20 @@ void DeInitCamera() {
 }
 
 int main(int argc, const char * argv[]) {
+  std::string recordPath = "";
+  if (argc == 2) {
+    recordPath = argv[1];
+#ifdef _WIN32
+    recordPath += "\\";
+#else
+    recordPath += "/";
+#endif
+  }
+
   frameCaptureIdx.store(0);
   frameDisplayIdx.store(-1);
   frameFileIdx.store(-1);
   nDevices = 0;
-
-  // std::string curTime = GetCurrentTimeAsString();
-  // cout << "Current Time: " << curTime << endl;
 
   // Set camera up in separate thread so we can later use it in separate thread
   std::thread initThread(InitCamera);
@@ -234,15 +241,11 @@ int main(int argc, const char * argv[]) {
 
 
   std::thread captureThread(CaptureThread);
-
   std::thread* fileThread = NULL;
   std::thread* audioThread = NULL;
 
-
   AudioRecorder ar;
-
   Mat depMat;
-
   int allH = 480, allW = 640*2;
   Mat allImg(allH, allW, CV_8UC3);
   Mat roiC1 = allImg(cv::Rect(0,0,640,480));
@@ -250,10 +253,7 @@ int main(int argc, const char * argv[]) {
 
   cv::namedWindow(windowName, CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE |
     CV_WINDOW_KEEPRATIO);
-  // cv::displayOverlay(windowName, "Not Recording, Press r to begin recording or "
-  //   "q to close program", 0);
 
-  // while (true) {
   while (endProgram.load() == 0) {
     int capIdx = frameCaptureIdx.load();
 
@@ -278,24 +278,29 @@ int main(int argc, const char * argv[]) {
       tsSubtract = f.colorTs[0]; // So timestamps start from 0 at recording.
 
       std::string curTime = GetCurrentTimeAsString();
-      std::string fname = "recording-" + curTime;
-
-      // Open video file in main thread (ffmpeg won't write to it otherwise)
-      videoWriter = new BgrVideoWriter(fname + ".mp4", 30, 640, 480);
-      depthWriter = new DepthVideoWriter(fname + ".avi", 30, 640, 480);
+      std::string fname = recordPath + "recording-" + curTime;
 
       // Record camera intrinsics
-      logFile.open(fname + ".log", std::ofstream::out);
-      logFile << cameras[0]->GetCalibrationString() << std::endl;
+      try {
+        // Open video file in main thread (ffmpeg won't write to it otherwise)
+        videoWriter = new BgrVideoWriter(fname + ".mp4", 30, 640, 480);
+        depthWriter = new DepthVideoWriter(fname + ".avi", 30, 640, 480);
 
+        logFile.open(fname + ".log", std::ofstream::out);
+        logFile << cameras[0]->GetCalibrationString() << std::endl;
+
+      } catch (...) {
+        cout << "Could not write to directory: " << recordPath << endl;
+        DeInitCamera();
+        exit(1);
+      }
+      
       // Begin video and audio encoding threads.
       fileThread = new std::thread(VideoWriterThread);
       audioThread = ar.RecordInAnotherThread(fname + ".ogg");
 
       cv::setWindowTitle(windowName, windowNameRecording);
 
-      // cv::displayOverlay(windowName, "Recording, Press q to end recording and "
-      //     "close program", 0);
       isRecording = true;
     }
   }
