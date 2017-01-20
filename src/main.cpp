@@ -59,6 +59,8 @@ std::ofstream logFile;
 
 int nDevices;
 
+bool isRecording = false;
+
 vector<RealSenseCamera*> cameras;
 // vector<openni::VideoStream*> colorStreams;
 // vector<openni::VideoStream*> depthStreams;
@@ -69,7 +71,10 @@ using std::chrono::microseconds;
 
 using time_stamp = time_point<system_clock, microseconds>;
 
-std::string windowName = "RGBDA Recorder (q to close)";
+std::string windowName = "RGBDA Recorder, Status: Not Recording, Press (R to "
+"record, Q to close)";
+std::string windowNameRecording = "RGBDA Recorder, Status: Recording, Press (Q "
+"to end recording and close program)";
 
 #ifdef _WIN32
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
@@ -88,17 +93,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 }
 #endif
 
-
+int tsSubtract = 0; // time (ms) to subtract from frame timestamps, is the
+                    // difference of the time capture and recording began.
 void VideoWriterThread() {
   int allW = 1280, allH = 480;
   if (nDevices == 2) allH = 960;
 
-  cv::Mat dep1(480, 640, CV_8UC1);
-  cv::Mat dep2(480, 640, CV_8UC1);
-  cv::Mat allImg(allH, allW, CV_8UC3);
-  cv::Mat roiC1 = allImg(cv::Rect(0,0,640,480));
-  cv::Mat roiD1 = allImg(cv::Rect(640,0,640,480));
-
+  // cv::Mat dep1(480, 640, CV_8UC1);
+  // cv::Mat dep2(480, 640, CV_8UC1);
+  // cv::Mat allImg(allH, allW, CV_8UC3);
+  // cv::Mat roiC1 = allImg(cv::Rect(0,0,640,480));
+  // cv::Mat roiD1 = allImg(cv::Rect(640,0,640,480));
   // cv::Mat roiC2 = roiC1;
   // cv::Mat roiD2 = roiD1;
 
@@ -116,18 +121,20 @@ void VideoWriterThread() {
 
     RgbdFrame& f = frames[fileIdx];
 
-    videoWriter->AddFrame(f.colorImgs[0], f.colorTs[0]);
-    depthWriter->AddFrame(f.depthImgs[0], f.depthTs[0]);
+    videoWriter->AddFrame(f.colorImgs[0], f.colorTs[0] - tsSubtract);
+    depthWriter->AddFrame(f.depthImgs[0], f.depthTs[0] - tsSubtract);
     
     std::string tsStr;
     for (int i=0; i<nDevices-1; i++) {
-      tsStr += (std::to_string(f.colorTs[i]) + ", " +
-                std::to_string(f.depthTs[i]) + ", ");
+      tsStr += (std::to_string(f.colorTs[i] - tsSubtract) + ", " +
+                std::to_string(f.depthTs[i] - tsSubtract) + ", ");
     }
     tsStr += (std::to_string(f.colorTs[nDevices-1]) + ", " +
               std::to_string(f.depthTs[nDevices-1]) + "\n");
 
     logFile << tsStr;
+
+    totalFrames++;
   }
 
   delete videoWriter;
@@ -157,7 +164,7 @@ void CaptureThread() {
       frames[capIdx].depthTs[i] = depthTs;
     }
 
-    totalFrames++;
+    // totalFrames++;
     frameCaptureIdx.store((capIdx+1) % nFrames);
     if (endProgram.load()) break;
   }
@@ -177,7 +184,6 @@ std::string GetCurrentTimeAsString() {
 }
 
 bool InitCamera() {
-  cout << cameras.size() << endl;
   cameras.push_back(new RealSenseCamera());
   std::vector<std::string> devices = cameras[0]->GetDeviceNames();
   if (devices.size()==0) {
@@ -196,19 +202,14 @@ void DeInitCamera() {
   }
 }
 
-void onMouse(int event, int x, int y, int, void* userdata) {
-  if (event != cv::EVENT_LBUTTONUP || y > 30) return; 
-  cv::displayOverlay(windowName, "(Recording): Click Here to End Recording", 0);
-}
-
 int main(int argc, const char * argv[]) {
   frameCaptureIdx.store(0);
   frameDisplayIdx.store(-1);
   frameFileIdx.store(-1);
   nDevices = 0;
 
-  std::string curTime = GetCurrentTimeAsString();
-  cout << "Current Time: " << curTime << endl;
+  // std::string curTime = GetCurrentTimeAsString();
+  // cout << "Current Time: " << curTime << endl;
 
   // Set camera up in separate thread so we can later use it in separate thread
   std::thread initThread(InitCamera);
@@ -231,20 +232,14 @@ int main(int argc, const char * argv[]) {
     }
   }
 
-  std::string fname = "recording-" + curTime;
-
-  // Open video file; note: ffmpeg won't write the file if not initialized in
-  // the main thread.
-  videoWriter = new BgrVideoWriter(fname + ".mp4", 30, 640, 480);
-  depthWriter = new DepthVideoWriter(fname + ".avi", 30, 640, 480);
-  logFile.open(fname + ".ts", std::ofstream::out);
-  logFile << cameras[0]->GetCalibrationString() << std::endl;
 
   std::thread captureThread(CaptureThread);
-  std::thread fileThread(VideoWriterThread);
+
+  std::thread* fileThread = NULL;
+  std::thread* audioThread = NULL;
+
 
   AudioRecorder ar;
-  std::thread* audioThread = ar.RecordInAnotherThread(fname + ".ogg");
 
   Mat depMat;
 
@@ -255,13 +250,11 @@ int main(int argc, const char * argv[]) {
 
   cv::namedWindow(windowName, CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE |
     CV_WINDOW_KEEPRATIO);
-  cv::displayOverlay(windowName, "Recording, Press q to end recording and close "
-      "program", 0);
-  // cv::displayOverlay(windowName, "(Not Recording): Click Here to Record", 0);
-  // cv::setMouseCallback(windowName, onMouse, 0);
+  // cv::displayOverlay(windowName, "Not Recording, Press r to begin recording or "
+  //   "q to close program", 0);
 
-  bool isRecording = false;
-  while (true) {
+  // while (true) {
+  while (endProgram.load() == 0) {
     int capIdx = frameCaptureIdx.load();
 
     if (endProgram.load()) break;
@@ -272,26 +265,58 @@ int main(int argc, const char * argv[]) {
     f.colorImgs[0].copyTo(roiC1);
     f.depthImgs[0].convertTo(depMat, CV_8U, 255.0 / 10000);
     applyColorMap(depMat, roiD1, cv::COLORMAP_JET);
-    cv::imshow("RGBDA Recorder (q to close)", allImg);
+    cv::imshow(windowName, allImg);
 
     int key = cv::waitKey(30);
     if ( key == 'q'  || key == 'Q' ) break;
-    // if ((key == 'r'  || key == 'R') && !isRecording) {
-    //   cout << "Begin recording..." << endl;
-    //   isRecording = true;
-    // }
+    if ((key == 'r'  || key == 'R') && !isRecording) {
+
+      int capIdx = frameCaptureIdx.load();
+      frameFileIdx.store(min(0, capIdx-2));
+
+      RgbdFrame& f = frames[(capIdx-1) % nFrames];
+      tsSubtract = f.colorTs[0]; // So timestamps start from 0 at recording.
+
+      std::string curTime = GetCurrentTimeAsString();
+      std::string fname = "recording-" + curTime;
+
+      // Open video file in main thread (ffmpeg won't write to it otherwise)
+      videoWriter = new BgrVideoWriter(fname + ".mp4", 30, 640, 480);
+      depthWriter = new DepthVideoWriter(fname + ".avi", 30, 640, 480);
+
+      // Record camera intrinsics
+      logFile.open(fname + ".log", std::ofstream::out);
+      logFile << cameras[0]->GetCalibrationString() << std::endl;
+
+      // Begin video and audio encoding threads.
+      fileThread = new std::thread(VideoWriterThread);
+      audioThread = ar.RecordInAnotherThread(fname + ".ogg");
+
+      cv::setWindowTitle(windowName, windowNameRecording);
+
+      // cv::displayOverlay(windowName, "Recording, Press q to end recording and "
+      //     "close program", 0);
+      isRecording = true;
+    }
   }
   endProgram.store(1);
-  
-  ar.EndRecord();
-  if (audioThread)
-    audioThread->join();
 
+  if (isRecording) {
+    ar.EndRecord();
+    if (audioThread) audioThread->join();
+    if (fileThread) fileThread->join();
+    logFile.close();
+  }
   captureThread.join();
-  fileThread.join();
-  logFile.close();
 
-  DeInitCamera();
-  cout << "Total Frames: " << totalFrames << endl;
+  try {
+    DeInitCamera();
+  } catch (const std::exception& e) {
+    std::cout << "Caught exception \"" << e.what() << "\"\n";
+    cout << "Warning: It may be necessary to unplug and replug cameras before "
+      "they can be used again.\n";
+  }
+
+  cout << "Total Frames Recorded: " << totalFrames << endl;
   return 0;
 }
