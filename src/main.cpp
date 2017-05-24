@@ -17,6 +17,7 @@
 
 
 #include "RealSenseCamera.hpp"
+#include "Kinect2Camera.hpp"
 
 #include <opencv2/opencv.hpp>
 #include "opencv2/core.hpp"
@@ -25,6 +26,8 @@
 
 #include "VideoWriter.hpp"
 #include "audiorecorder.hpp"
+
+#include "ezOptionParser.hpp"
 
 using cv::Mat;
 using std::vector;
@@ -52,8 +55,8 @@ std::atomic_int frameDisplayIdx;
 std::atomic_int frameFileIdx;
 std::atomic_int endProgram;
 
-// RgbVideoWriter* videoWriter = NULL;
-BgrVideoWriter* videoWriter = NULL;
+RgbVideoWriter* videoWriter = NULL;
+// BgrVideoWriter* videoWriter = NULL;
 DepthVideoWriter* depthWriter = NULL;
 std::ofstream logFile;
 
@@ -61,7 +64,8 @@ int nDevices;
 
 bool isRecording = false;
 
-vector<RealSenseCamera*> cameras;
+vector<Kinect2Camera*> cameras;
+// vector<RealSenseCamera*> cameras;
 // vector<openni::VideoStream*> colorStreams;
 // vector<openni::VideoStream*> depthStreams;
 
@@ -75,6 +79,8 @@ std::string windowName = "RGBDA Recorder, Status: Not Recording, Press (R to "
 "record, Q to close)";
 std::string windowNameRecording = "RGBDA Recorder, Status: Recording, Press (Q "
 "to end recording and close program)";
+
+std::string contolWindowName = "Camera Controls";
 
 #ifdef _WIN32
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
@@ -93,25 +99,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 }
 #endif
 
+#define modulo_positive(x,n) (n + (x % n)) % n
+
 int tsSubtract = 0; // time (ms) to subtract from frame timestamps, is the
                     // difference of the time capture and recording began.
 void VideoWriterThread() {
-  int allW = 1280, allH = 480;
-  if (nDevices == 2) allH = 960;
-
-  // cv::Mat dep1(480, 640, CV_8UC1);
-  // cv::Mat dep2(480, 640, CV_8UC1);
-  // cv::Mat allImg(allH, allW, CV_8UC3);
-  // cv::Mat roiC1 = allImg(cv::Rect(0,0,640,480));
-  // cv::Mat roiD1 = allImg(cv::Rect(640,0,640,480));
-  // cv::Mat roiC2 = roiC1;
-  // cv::Mat roiD2 = roiD1;
 
   while (true) {
     int capIdx = frameCaptureIdx.load();
     int fileIdx = frameFileIdx.load(); 
 
-    if (endProgram.load()) break;
+    // if (endProgram.load()) {
+    //   while (modulo_positive(fileIdx-1, nFrames) {
+    //
+    //     frameFileIdx.store((fileIdx+1) % nFrames);
+    //     fileIdx = frameFileIdx.load();
+    //   }
+    //   break;
+    // }
+    if (endProgram.load() && fileIdx == modulo_positive(capIdx-1,nFrames) ) {
+      break;
+    }
+
     if (capIdx <= 0 || fileIdx == capIdx-1) {
       continue;
     }
@@ -146,8 +155,11 @@ void VideoWriterThread() {
 
 void CaptureThread() {
   // Work
-  cv::Mat rgb, depth;
+  // cv::Mat rgb, depth;
+  cv::Mat rgb = cv::Mat(1080, 1920, CV_8UC4);
+  cv::Mat depth = cv::Mat(424, 512, CV_16UC1);
   double rgbTs, depthTs;
+
   while (true) {
     int capIdx = frameCaptureIdx.load();
     bool isValid = true;
@@ -157,8 +169,11 @@ void CaptureThread() {
         cout << "Error in camera capture." << endl;
         break;
       }
+      // frames[capIdx].colorImgs[i] = rgb.clone();
+      
       rgb.copyTo(frames[capIdx].colorImgs[i]);
-      depth.copyTo(frames[capIdx].depthImgs[i]);
+      depth.convertTo(frames[capIdx].depthImgs[i], CV_16UC1);
+      // depth.copyTo(frames[capIdx].depthImgs[i]);
 
       frames[capIdx].colorTs[i] = rgbTs;
       frames[capIdx].depthTs[i] = depthTs;
@@ -184,7 +199,8 @@ std::string GetCurrentTimeAsString() {
 }
 
 bool InitCamera() {
-  cameras.push_back(new RealSenseCamera());
+  // cameras.push_back(new RealSenseCamera());
+  cameras.push_back(new Kinect2Camera("cl"));
   std::vector<std::string> devices = cameras[0]->GetDeviceNames();
   if (devices.size()==0) {
     cout << "No supported cameras are connected. Exiting\n";
@@ -203,9 +219,95 @@ void DeInitCamera() {
 }
 
 int main(int argc, const char * argv[]) {
+
+  // Parse Options
+  ez::ezOptionParser opt;
+  opt.overview = "Intel RealSense R200 Recording App (H.264 Color and Lossless FFV1 Depth)";
+  opt.syntax = "rgba_record [-h --help] [--manual] [--crf v] [--preset s] [--output_dir s]";
+  opt.example = "rgba_record --crf 23 --preset medium --output imgs\n";
+  opt.footer = "Copyright (C) 2016 David S. Hayden\n";
+
+  opt.add(
+    "", // Default.
+    0, // Required?
+    0, // Number of args expected.
+    0, // Delimiter if expecting multiple args.
+    "Display help", // Help description.
+    "-h",     // Flag token. 
+    "--help" // Flag token.
+  );
+
+  opt.add(
+    "options.ini", // Default.
+    0, // Required?
+    1, // Number of args expected.
+    0, // Delimiter if expecting multiple args.
+    "File to import arguments.", // Help description.
+    "--options_file" // Flag token.
+  );
+
+  // opt.add(
+  //   "", // Default.
+  //   0, // Required?
+  //   0, // Number of args expected.
+  //   0, // Delimiter if expecting multiple args.
+  //   "Enable Manual Camera Control", // Help description.
+  //   "--manual" // Flag token.
+  // );
+
+  ez::ezOptionValidator* crfValidator = new ez::ezOptionValidator("s4", "gele", "0,51");
+  opt.add(
+    "18", // Default.
+    0, // Required?
+    1, // Number of args expected.
+    0, // Delimiter if expecting multiple args.
+    "Color recording quality. Must be integer between 0..51. Scale is:\n0 (Lossless), 18 (Very Good), 23 (Normal) 51 (Terrible)\nDefault: 20", // Help description.
+    "--crf", // Flag token.
+    crfValidator
+  );
+
+  opt.add(
+    "medium", // Default.
+    0, // Required?
+    1, // Number of args expected.
+    0, // Delimiter if expecting multiple args.
+    "Color recording quality preset, one of:\n{veryslow, slower, slow, medium, fast, faster, veryfast, superfast, ultrafast}\nDefault: medium", // Help description.
+    "--preset" // Flag token.
+  );
+
+  string defaultRecordPath = "";
+  opt.add(
+    "", // Default.
+    0, // Required?
+    1, // Number of args expected.
+    0, // Delimiter if expecting multiple args.
+    "Directory to save recordings", // Help description.
+    "--output_dir" // Flag token.
+  );
+
+  opt.parse(argc, argv);
+
+  if (opt.isSet("-h")) {
+    std::string usage;
+    opt.getUsage(usage);
+    std::cout << usage;
+    return 1;
+  }
+
+  string options_file;
+  opt.get("--options_file")->getString(options_file);
+  if (!opt.importFile(options_file.c_str(), '#')) {
+    cout << "WARNING: Failed to open options file: " << options_file << endl;
+  }
+  
+  // string prettyprint;
+  // opt.prettyPrint(prettyprint);
+  // cout << prettyprint;
+  // opt.exportFile("options.ini", true);
+
   std::string recordPath = "";
-  if (argc == 2) {
-    recordPath = argv[1];
+  if (opt.isSet("--output_dir")) {
+    opt.get("--output_dir")->getString(recordPath);
 #ifdef _WIN32
     recordPath += "\\";
 #else
@@ -213,12 +315,32 @@ int main(int argc, const char * argv[]) {
 #endif
   }
 
+  std::vector<std::string> badOptions, badArgs;
+  if (!opt.gotValid(badOptions, badArgs)) {
+    for(int i=0; i < badOptions.size(); ++i)
+      std::cerr << "ERROR: Got invalid argument \"" << badArgs[i] << "\" for option " << badOptions[i] << ".\n\n";
+    exit(1);
+  }
+
+  string crfValue;
+  opt.get("--crf")->getString(crfValue);
+
+  string presetValue;
+  opt.get("--preset")->getString(presetValue);
+
+  cout << "Color Recording (crf: " << crfValue << ", preset: " << presetValue << ")\n";
+  vector<string> bgrOpts = {"preset", presetValue, "tune", "film", "crf",
+    crfValue, "pixel_format", "yuv420p"};
+
+  // Finished processing command line options
+
   frameCaptureIdx.store(0);
   frameDisplayIdx.store(-1);
   frameFileIdx.store(-1);
   nDevices = 0;
 
   // Set camera up in separate thread so we can later use it in separate thread
+  // InitCamera();
   std::thread initThread(InitCamera);
   initThread.join();
 
@@ -231,8 +353,10 @@ int main(int argc, const char * argv[]) {
     frames[i].depthTs = vector<uint64_t>(nDevices);
 
     for (int j=0;j<nDevices;j++) {
-      frames[i].colorImgs[j] = cv::Mat(480, 640, CV_8UC3);
-      frames[i].depthImgs[j] = cv::Mat(480, 640, CV_16UC1);
+      // frames[i].colorImgs[j] = cv::Mat(480, 640, CV_8UC3);
+      // frames[i].depthImgs[j] = cv::Mat(480, 640, CV_16UC1);
+      frames[i].colorImgs[j] = cv::Mat(1080, 1920, CV_8UC4);
+      frames[i].depthImgs[j] = cv::Mat(424, 512, CV_32FC1);
 
       frames[i].colorTs[j] = 0;
       frames[i].depthTs[j] = 0;
@@ -246,14 +370,23 @@ int main(int argc, const char * argv[]) {
 
   AudioRecorder ar;
   Mat depMat;
-  int allH = 480, allW = 640*2;
+  int allH = 424, allW = 1152;
   Mat allImg(allH, allW, CV_8UC3);
-  Mat roiC1 = allImg(cv::Rect(0,0,640,480));
-  Mat roiD1 = allImg(cv::Rect(640,0,640,480));
+  Mat roiC1 = allImg(cv::Rect(0,32,640,360));
+  Mat roiD1 = allImg(cv::Rect(640,0,512,424));
+  Mat colorResize = cv::Mat(360, 640, CV_8UC4);
 
-  cv::namedWindow(windowName, CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE |
-    CV_WINDOW_KEEPRATIO);
+  cv::namedWindow(windowName, CV_GUI_NORMAL | CV_WINDOW_OPENGL);
 
+  // if (opt.isSet("--manual")) {
+  //   cv::namedWindow(contolWindowName, CV_GUI_NORMAL | CV_WINDOW_AUTOSIZE |
+  //     CV_WINDOW_KEEPRATIO);
+  //   int initBrightness = 0, brightnessMax = 255;
+  //   cv::createTrackbar("Brightness (RGB)", contolWindowName, &initBrightness, brightnessMax, NULL );
+  //   cv::createTrackbar("Exposure (RGB)", contolWindowName, &initBrightness, brightnessMax, NULL );
+  // }
+
+  int framesDisp = 0;
   while (endProgram.load() == 0) {
     int capIdx = frameCaptureIdx.load();
 
@@ -262,10 +395,33 @@ int main(int argc, const char * argv[]) {
     else frameDisplayIdx.store(capIdx-1);
 
     RgbdFrame& f = frames[frameDisplayIdx.load()];
-    f.colorImgs[0].copyTo(roiC1);
-    f.depthImgs[0].convertTo(depMat, CV_8U, 255.0 / 10000);
-    applyColorMap(depMat, roiD1, cv::COLORMAP_JET);
+    // f.colorImgs[0].copyTo(roiC1);
+    // applyColorMap(depMat, roiD1, cv::COLORMAP_JET);
+    
+    f.depthImgs[0].convertTo(depMat, CV_8U, 255.0 / 6000);
+    
+    cv::resize(f.colorImgs[0], colorResize, colorResize.size(), 0, 0, cv::INTER_NEAREST);
+    cv::cvtColor(colorResize, roiC1, cv::COLOR_BGRA2BGR);
+
+    // colorResize.convertTo(roiC1, CV_8UC3, 255);
+    // imshow("ok", roiC1);
+    // imshow("ok", colorResize);
+
+    // cv::resize(f.colorImgs[0], roiC1, roiC1.size(), 0, 0, cv::INTER_NEAREST);
+
+    // f.colorImgs[0].
+    // applyColorMap(depMat, depMat, cv::COLORMAP_JET);
+    applyColorMap(depMat, roiD1, cv::COLORMAP_BONE);
+    // cv::imshow(windowName, depMat);
     cv::imshow(windowName, allImg);
+    if (isRecording)
+      cout << framesDisp++ << ": " << f.colorTs[0] << endl;
+
+    // cv::imshow(windowName, f.colorImgs[0]);
+
+    // cv::imshow(windowName, f.colorImgs[0]);
+    // cv::imwrite("test.jpg", f.colorImgs[0]);
+    // cv::imwrite("test.png", f.depthImgs[0]);
 
     int key = cv::waitKey(30);
     if ( key == 'q'  || key == 'Q' ) break;
@@ -283,8 +439,9 @@ int main(int argc, const char * argv[]) {
       // Record camera intrinsics
       try {
         // Open video file in main thread (ffmpeg won't write to it otherwise)
-        videoWriter = new BgrVideoWriter(fname + ".mp4", 30, 640, 480);
-        depthWriter = new DepthVideoWriter(fname + ".avi", 30, 640, 480);
+        int fps = 25;
+        videoWriter = new RgbVideoWriter(fname + ".mp4", fps, 1920, 1080, bgrOpts);
+        depthWriter = new DepthVideoWriter(fname + ".avi", fps, 512, 424);
 
         logFile.open(fname + ".log", std::ofstream::out);
         logFile << cameras[0]->GetCalibrationString() << std::endl;
