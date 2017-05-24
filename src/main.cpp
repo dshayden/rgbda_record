@@ -79,6 +79,8 @@ std::string windowName = "RGBDA Recorder, Status: Not Recording, Press (R to "
 "record, Q to close)";
 std::string windowNameRecording = "RGBDA Recorder, Status: Recording, Press (Q "
 "to end recording and close program)";
+std::string windowNameClosing =
+  "RGBDA Recorder, Status: Closing (please be patient, may take ~10 seconds)";
 
 std::string contolWindowName = "Camera Controls";
 
@@ -109,14 +111,6 @@ void VideoWriterThread() {
     int capIdx = frameCaptureIdx.load();
     int fileIdx = frameFileIdx.load(); 
 
-    // if (endProgram.load()) {
-    //   while (modulo_positive(fileIdx-1, nFrames) {
-    //
-    //     frameFileIdx.store((fileIdx+1) % nFrames);
-    //     fileIdx = frameFileIdx.load();
-    //   }
-    //   break;
-    // }
     if (endProgram.load() && fileIdx == modulo_positive(capIdx-1,nFrames) ) {
       break;
     }
@@ -222,7 +216,7 @@ int main(int argc, const char * argv[]) {
 
   // Parse Options
   ez::ezOptionParser opt;
-  opt.overview = "Intel RealSense R200 Recording App (H.264 Color and Lossless FFV1 Depth)";
+  opt.overview = "RGB and Depth Recording App (H.264 Color and Lossless FFV1 Depth)";
   opt.syntax = "rgba_record [-h --help] [--manual] [--crf v] [--preset s] [--output_dir s]";
   opt.example = "rgba_record --crf 23 --preset medium --output imgs\n";
   opt.footer = "Copyright (C) 2016 David S. Hayden\n";
@@ -395,36 +389,20 @@ int main(int argc, const char * argv[]) {
     else frameDisplayIdx.store(capIdx-1);
 
     RgbdFrame& f = frames[frameDisplayIdx.load()];
-    // f.colorImgs[0].copyTo(roiC1);
-    // applyColorMap(depMat, roiD1, cv::COLORMAP_JET);
-    
     f.depthImgs[0].convertTo(depMat, CV_8U, 255.0 / 6000);
     
     cv::resize(f.colorImgs[0], colorResize, colorResize.size(), 0, 0, cv::INTER_NEAREST);
     cv::cvtColor(colorResize, roiC1, cv::COLOR_BGRA2BGR);
 
-    // colorResize.convertTo(roiC1, CV_8UC3, 255);
-    // imshow("ok", roiC1);
-    // imshow("ok", colorResize);
-
-    // cv::resize(f.colorImgs[0], roiC1, roiC1.size(), 0, 0, cv::INTER_NEAREST);
-
-    // f.colorImgs[0].
-    // applyColorMap(depMat, depMat, cv::COLORMAP_JET);
     applyColorMap(depMat, roiD1, cv::COLORMAP_BONE);
-    // cv::imshow(windowName, depMat);
     cv::imshow(windowName, allImg);
-    if (isRecording)
-      cout << framesDisp++ << ": " << f.colorTs[0] << endl;
-
-    // cv::imshow(windowName, f.colorImgs[0]);
-
-    // cv::imshow(windowName, f.colorImgs[0]);
-    // cv::imwrite("test.jpg", f.colorImgs[0]);
-    // cv::imwrite("test.png", f.depthImgs[0]);
 
     int key = cv::waitKey(30);
-    if ( key == 'q'  || key == 'Q' ) break;
+    if ( key == 'q'  || key == 'Q' ) {
+      cv::setWindowTitle(windowName, windowNameClosing);
+      cv::waitKey(1);
+      break;
+    }
     if ((key == 'r'  || key == 'R') && !isRecording) {
 
       int capIdx = frameCaptureIdx.load();

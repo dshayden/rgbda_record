@@ -69,24 +69,30 @@ private:
 // Tested with avi filenames.
 class DepthVideoWriter : public VideoWriter {
 public:
-  DepthVideoWriter(string _filename, int _fps, int _width, int _height, int nThreads=4) :
-    VideoWriter(_filename, _fps, _width, _height, AV_PIX_FMT_GRAY16,
-        AV_PIX_FMT_GRAY16, AV_CODEC_ID_FFV1, {"coder", "1", "level", "3",
-        "threads", to_string(nThreads), "pass", "1"}) {};
+  DepthVideoWriter(string _filename, int _fps, int _width, int _height,
+      int nThreads=4, vector<string> opts={"coder", "1", "level", "3",
+      "threads", to_string(4), "pass", "1"}) : VideoWriter(_filename,
+        _fps, _width, _height, AV_PIX_FMT_GRAY16, AV_PIX_FMT_GRAY16,
+        AV_CODEC_ID_FFV1, opts)
+      {};
 
   bool AddFrame(cv::Mat img, uint64_t timestamp) {
     return VideoWriter::AddFrame((uint8_t*) img.data, img.step, timestamp);
   }
 };
 
-// Tested with mp4 filenames.
 class BgrVideoWriter : public VideoWriter {
 public:
-  BgrVideoWriter(string _filename, int _fps, int _width, int _height) :
-    VideoWriter(_filename, _fps, _width, _height, AV_PIX_FMT_BGR24,
-        AV_PIX_FMT_YUV420P, AV_CODEC_ID_H264,
-        {"preset", "ultrafast", "tune", "film", "crf", "23", "pixel_format",
-        "yuv420p"}) {};
+  BgrVideoWriter(string _filename, int _fps, int _width, int _height,
+      vector<string> opts={"preset", "medium", "tune", "film", "crf", "18",
+      "pixel_format", "yuv420p"}) : VideoWriter(_filename, _fps, _width,
+        _height, AV_PIX_FMT_BGR32, AV_PIX_FMT_YUV420P, AV_CODEC_ID_H264, opts)
+      {};
+  // BgrVideoWriter(string _filename, int _fps, int _width, int _height,
+  //     vector<string> opts={"profile", "high", "level", "4.1"}) :
+  //     VideoWriter(_filename, _fps, _width,
+  //       _height, AV_PIX_FMT_BGR24, AV_PIX_FMT_YUV420P, AV_CODEC_ID_H264, opts)
+  //     {};
 
   bool AddFrame(cv::Mat img, uint64_t timestamp) {
     return VideoWriter::AddFrame((uint8_t*) img.data, img.step, timestamp);
@@ -95,11 +101,11 @@ public:
 
 class RgbVideoWriter : public VideoWriter {
 public:
-  RgbVideoWriter(string _filename, int _fps, int _width, int _height) :
-    VideoWriter(_filename, _fps, _width, _height, AV_PIX_FMT_RGB24,
-        AV_PIX_FMT_YUV420P, AV_CODEC_ID_H264,
-        {"preset", "ultrafast", "tune", "film", "crf", "23", "pixel_format",
-        "yuv420p"}) {};
+  RgbVideoWriter(string _filename, int _fps, int _width, int _height,
+      vector<string> opts={"preset", "medium", "tune", "film", "crf", "18", "pixel_format",
+        "yuv420p"}) : VideoWriter(_filename, _fps, _width, _height, AV_PIX_FMT_RGB32,
+        AV_PIX_FMT_YUV420P, AV_CODEC_ID_H264, opts)
+        {};
 
   bool AddFrame(cv::Mat img, uint64_t timestamp) {
     return VideoWriter::AddFrame((uint8_t*) img.data, img.step, timestamp);
