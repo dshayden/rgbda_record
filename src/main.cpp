@@ -41,7 +41,11 @@ struct RgbdFrame {
 
   vector<uint64_t> colorTs;
   vector<uint64_t> depthTs;
+
+  long collectionTs;
 };
+
+std::chrono::time_point<std::chrono::high_resolution_clock> progStartTime;
 
 const int nFrames = 300;
 vector<RgbdFrame> frames(nFrames);
@@ -56,8 +60,11 @@ std::atomic_int frameFileIdx;
 std::atomic_int endProgram;
 
 RgbVideoWriter* videoWriter = NULL;
-// BgrVideoWriter* videoWriter = NULL;
 DepthVideoWriter* depthWriter = NULL;
+
+// cv::VideoWriter* videoWriter = NULL;
+// cv::VideoWriter* depthWriter = NULL;
+
 std::ofstream logFile;
 
 int nDevices;
@@ -68,6 +75,11 @@ vector<Kinect2Camera*> cameras;
 // vector<RealSenseCamera*> cameras;
 // vector<openni::VideoStream*> colorStreams;
 // vector<openni::VideoStream*> depthStreams;
+
+int rgbH = 1080, rgbW = 1920;
+// int rgbH = 720, rgbW = 1280;
+// int rgbH = 540, rgbW = 960;
+int depH = 424, depW = 512;
 
 using std::chrono::time_point;
 using std::chrono::system_clock;
@@ -103,6 +115,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
 
 #define modulo_positive(x,n) (n + (x % n)) % n
 
+static unsigned long getTimeSinceEpochMillis(std::time_t* t = nullptr)
+{
+  return static_cast<unsigned long>
+    (static_cast<std::chrono::milliseconds>(std::time(t)).count());
+}
+
 int tsSubtract = 0; // time (ms) to subtract from frame timestamps, is the
                     // difference of the time capture and recording began.
 void VideoWriterThread() {
@@ -124,8 +142,38 @@ void VideoWriterThread() {
 
     RgbdFrame& f = frames[fileIdx];
 
+    // auto start=std::chrono::high_resolution_clock::now();
+    // // videoWriter->write(f.colorImgs[0]);
+    // // cout << "about to call depthWriter->write" << endl;
+    // // depthWriter->write(f.depthImgs[0]);
+    // auto diff = std::chrono::duration_cast<std::chrono::milliseconds>
+    //   (std::chrono::high_resolution_clock::now()-start);
+    // auto cnt = diff.count();
+    // if (cnt!=0) {
+    //   std::cout << "Write FPS: " << 1000/float(cnt) << std::endl;
+    // }
+
     videoWriter->AddFrame(f.colorImgs[0], f.colorTs[0] - tsSubtract);
     depthWriter->AddFrame(f.depthImgs[0], f.depthTs[0] - tsSubtract);
+
+    // if (totalFrames > 0 && totalFrames % 100 == 0) {
+    //   videoWriter->WriteBuffer();
+    //   depthWriter->WriteBuffer();
+    // }
+
+    // std::string fNameDep = "imgs/" + std::to_string(f.depthTs[0] - tsSubtract) + ".png";
+    // std::string fNameRgb = "imgs/" + std::to_string(f.colorTs[0] - tsSubtract) + ".jpg";
+    // auto start=std::chrono::high_resolution_clock::now();
+    // // cv::imwrite(fNameDep, f.depthImgs[0], depthParams);
+    // // cv::imwrite(fNameRgb, f.colorImgs[0], rgbParams);
+    // cv::imwrite(fNameDep, f.depthImgs[0]);
+    // cv::imwrite(fNameRgb, f.colorImgs[0]);
+    // auto diff = std::chrono::duration_cast<std::chrono::milliseconds>
+    //   (std::chrono::high_resolution_clock::now()-start);
+    // auto cnt = diff.count();
+    // if (cnt!=0) {
+    //   std::cout << "Write FPS: " << 1000/float(cnt) << std::endl;
+    // }
     
     std::string tsStr;
     for (int i=0; i<nDevices-1; i++) {
@@ -133,7 +181,8 @@ void VideoWriterThread() {
                 std::to_string(f.depthTs[i] - tsSubtract) + ", ");
     }
     tsStr += (std::to_string(f.colorTs[nDevices-1]) + ", " +
-              std::to_string(f.depthTs[nDevices-1]) + "\n");
+              std::to_string(f.depthTs[nDevices-1]) + ", " +
+              std::to_string(f.collectionTs) + "\n");
 
     logFile << tsStr;
 
@@ -149,9 +198,8 @@ void VideoWriterThread() {
 
 void CaptureThread() {
   // Work
-  // cv::Mat rgb, depth;
-  cv::Mat rgb = cv::Mat(1080, 1920, CV_8UC4);
-  cv::Mat depth = cv::Mat(424, 512, CV_16UC1);
+  cv::Mat rgb = cv::Mat(rgbH, rgbW, CV_8UC4);
+  cv::Mat depth = cv::Mat(depH, depW, CV_16UC1);
   double rgbTs, depthTs;
 
   while (true) {
@@ -165,9 +213,14 @@ void CaptureThread() {
       }
       // frames[capIdx].colorImgs[i] = rgb.clone();
       
+      // frames[capIdx].collectionTs = getTimeSinceEpochMillis(NULL);
+      auto capTime = std::chrono::high_resolution_clock::now();
+      frames[capIdx].collectionTs =
+        std::chrono::duration_cast<std::chrono::milliseconds>
+        (capTime - progStartTime).count();
+
       rgb.copyTo(frames[capIdx].colorImgs[i]);
       depth.convertTo(frames[capIdx].depthImgs[i], CV_16UC1);
-      // depth.copyTo(frames[capIdx].depthImgs[i]);
 
       frames[capIdx].colorTs[i] = rgbTs;
       frames[capIdx].depthTs[i] = depthTs;
@@ -213,6 +266,8 @@ void DeInitCamera() {
 }
 
 int main(int argc, const char * argv[]) {
+  // Start time of program
+  progStartTime = std::chrono::high_resolution_clock::now();
 
   // Parse Options
   ez::ezOptionParser opt;
@@ -326,6 +381,11 @@ int main(int argc, const char * argv[]) {
   vector<string> bgrOpts = {"preset", presetValue, "tune", "film", "crf",
     crfValue, "pixel_format", "yuv420p"};
 
+  // vector<string> bgrOpts = {"preset", presetValue, "tune", "zerolatency", "crf",
+  //   crfValue, "pixel_format", "yuv420p", "profile", "baseline"};
+  // vector<string> bgrOpts = {"preset", "ultrafast", "tune", "zerolatency", "crf",
+  //   crfValue, "pixel_format", "yuv420p", "profile", "baseline"};
+
   // Finished processing command line options
 
   frameCaptureIdx.store(0);
@@ -418,8 +478,12 @@ int main(int argc, const char * argv[]) {
       try {
         // Open video file in main thread (ffmpeg won't write to it otherwise)
         int fps = 25;
-        videoWriter = new RgbVideoWriter(fname + ".mp4", fps, 1920, 1080, bgrOpts);
-        depthWriter = new DepthVideoWriter(fname + ".avi", fps, 512, 424);
+
+        // videoWriter = new cv::VideoWriter(fname + ".mp4", cv::VideoWriter::fourcc('H', '2', '6', '4'), 25, cv::Size(rgbW, rgbH), true);
+        // depthWriter = new cv::VideoWriter(fname + ".avi", cv::VideoWriter::fourcc('F', 'F', 'V', '1'), 25, cv::Size(depW, depH), false);
+
+        videoWriter = new RgbVideoWriter(fname + ".mp4", fps, rgbW, rgbH, bgrOpts);
+        depthWriter = new DepthVideoWriter(fname + ".avi", fps, depW, depH);
 
         logFile.open(fname + ".log", std::ofstream::out);
         logFile << cameras[0]->GetCalibrationString() << std::endl;

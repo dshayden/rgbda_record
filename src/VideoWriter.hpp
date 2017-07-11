@@ -43,11 +43,12 @@ public:
   bool AddFrame(uint8_t* img, int linesize, uint64_t timestamp);
   void Close();
 
+  void WriteBuffer();
+
 private:
   AVStream* ConfigureVideoStream(AVFormatContext* oc, AVCodecID codec_id,
     int width, int height, int bitrate, int fps, AVPixelFormat codecPixFmt);
   AVFrame* AllocateFrame(AVPixelFormat pixFmt,int width,int height,bool alloc);
-
 
   AVOutputFormat* fmt;
   AVFormatContext* oc; // formerly, fc

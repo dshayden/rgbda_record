@@ -99,13 +99,15 @@ bool Kinect2Camera::GetFrame(cv::Mat& rgb, cv::Mat& depth, double& rgbTs,
   cv::Mat depMat(depthK->height, depthK->width, CV_32FC1, depthK->data);
 
   // todo: add method to call listener->release so no extra copy here
-  colorMat.copyTo(rgb);
+  // colorMat.copyTo(rgb);
+  cv::resize(colorMat, rgb, rgb.size(), 0, 0);
+
   depMat.convertTo(depth, CV_16UC1);
 
   listener->release(*frames);
 
-  rgbTs = rgbK->timestamp;
-  depthTs = depthK->timestamp;
+  rgbTs = rgbK->timestamp * 0.125;
+  depthTs = depthK->timestamp * 0.125;
   return true;
 }
 

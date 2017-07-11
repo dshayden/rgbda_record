@@ -104,8 +104,8 @@ void VideoWriter::Close() {
 
       pkt.stream_index = outStream->index;
 
-      // ret = av_write_frame(oc, &pkt);
-      ret = av_interleaved_write_frame(oc, &pkt);
+      ret = av_write_frame(oc, &pkt);
+      // ret = av_interleaved_write_frame(oc, &pkt);
       if (ret < 0) cout << "error in av_write_frame, #: " << ret << endl;
 
       av_packet_unref(&pkt);
@@ -138,8 +138,8 @@ bool VideoWriter::AddFrame(uint8_t* img, int linesize, uint64_t timestamp) {
   //   inPixFmt, width, height, 1);
   // if (ret <= 0) cout << "error in av_image_fill_arrays, #: " << ret << endl;
 
-  ret = av_frame_get_buffer(yuvPic, 1);
-  if (ret < 0) cout << "error in av_frame_get_buffer, #: " << ret << endl;
+  // ret = av_frame_get_buffer(yuvPic, 1);
+  // if (ret < 0) cout << "error in av_frame_get_buffer, #: " << ret << endl;
 
   sws_context = sws_getCachedContext(sws_context, c->width, c->height, inPixFmt,
     c->width, c->height, outPixFmt, 0, 0, 0, 0);
@@ -198,10 +198,59 @@ bool VideoWriter::AddFrame(uint8_t* img, int linesize, uint64_t timestamp) {
     if (ret < 0) cout << "error in av_write_frame, #: " << ret << endl;
 
     av_packet_unref(&pkt);
+  } else {
+    av_packet_unref(&pkt);
   }
 
   if (ret >= 0) return true;
   else return false;
+}
+
+void VideoWriter::WriteBuffer() {
+  if (!ok) return;
+  int ret, gotOutput;
+  AVCodecContext* c = outStream->codec;
+
+  do {
+    AVPacket pkt;
+    av_init_packet(&pkt);
+    pkt.data = NULL;
+    pkt.size = 0;
+    ret = avcodec_encode_video2(c, &pkt, NULL, &gotOutput);
+
+    if (ret < 0) {
+      cout << "error in avcodec_encode_video2, #: " << ret << endl;
+      break;
+    }
+
+    if (gotOutput) {
+      // pkt.dts = frameNum++;
+      // std::cout << "pts, dts: " << pkt.pts << ", " << pkt.dts << std::endl;
+
+      if (pkt.pts != (int64_t)AV_NOPTS_VALUE) {
+        pkt.pts = av_rescale_q(pkt.pts, c->time_base, outStream->time_base);
+      }
+      if (pkt.dts != (int64_t)AV_NOPTS_VALUE) {
+        pkt.dts = av_rescale_q(pkt.dts, c->time_base, outStream->time_base);
+      }
+      // pkt.duration = 0;
+
+      if (pkt.duration) { // todo: need to figure out how to set duration
+        pkt.duration = av_rescale_q(pkt.duration, c->time_base,
+          outStream->time_base);
+      }
+
+      pkt.stream_index = outStream->index;
+
+      // ret = av_write_frame(oc, &pkt);
+      ret = av_interleaved_write_frame(oc, &pkt);
+      if (ret < 0) cout << "error in av_write_frame, #: " << ret << endl;
+
+      av_packet_unref(&pkt);
+    }
+  } while (gotOutput);
+
+  // avio_flush(oc->pb);
 }
 
 VideoWriter::VideoWriter(string _filename, int _fps, int _width, int _height,
@@ -246,6 +295,12 @@ VideoWriter::VideoWriter(string _filename, int _fps, int _width, int _height,
     av_dict_set(&codec_options, opts[i].c_str(), opts[i+1].c_str(), 0);
   }
 
+  // av_dict_set(&codec_options, "tune", "zerolatency", 0);
+  // av_dict_set(&codec_options, "profile", "baseline", 0);
+
+  // av_opt_set(c->priv_data, "tune", "zerolatency", 0);
+
+
   // av_dict_set( &codec_options, "coder", "1", 0 ); // allow gray16
   // av_dict_set( &codec_options, "level", "3", 0 );
   // av_dict_set( &codec_options, "threads", "4", 0 );
@@ -265,6 +320,11 @@ VideoWriter::VideoWriter(string _filename, int _fps, int _width, int _height,
   bool needColorConvert = false;
   bgrPic = AllocateFrame(inPixFmt, c->width, c->height, needColorConvert); // same as input_picture
   yuvPic = AllocateFrame(c->pix_fmt, c->width, c->height, needColorConvert);
+
+  int ret;
+  ret = av_frame_get_buffer(yuvPic, 1);
+  if (ret < 0) cout << "error in av_frame_get_buffer, #: " << ret << endl;
+
   if (!bgrPic || !yuvPic)
     cerr << "Could not allocate bgr or yuv frames, invalid state.\n";
   
@@ -334,6 +394,8 @@ AVStream* VideoWriter::ConfigureVideoStream(AVFormatContext* oc,
 
   // Allow presets system to handle defaults
   c->gop_size = -1;
+  // c->gop_size = 12;
+
   c->qmin = -1;
   // c->qmin = 2; // for mjpeg, which is slower (!)
   // c->qmax = 2;
