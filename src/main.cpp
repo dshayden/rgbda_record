@@ -48,15 +48,16 @@ struct RgbdFrame {
 std::chrono::time_point<std::chrono::high_resolution_clock> progStartTime;
 
 const int nFrames = 300;
+
 vector<RgbdFrame> frames(nFrames);
 
 int64_t totalFrames = 0;
 int64_t frameDrops = 0;
 
 // atomic operators
-std::atomic_int frameCaptureIdx;
+std::atomic_int frameCaptureIdx; // most recently captured frame
 std::atomic_int frameDisplayIdx;
-std::atomic_int frameFileIdx;
+std::atomic_int frameFileIdx; // last written frame
 std::atomic_int endProgram;
 
 RgbVideoWriter* videoWriter = NULL;
@@ -121,25 +122,25 @@ static unsigned long getTimeSinceEpochMillis(std::time_t* t = nullptr)
     (static_cast<std::chrono::milliseconds>(std::time(t)).count());
 }
 
-int tsSubtract = 0; // time (ms) to subtract from frame timestamps, is the
-                    // difference of the time capture and recording began.
+uint64_t tsSubtract = 0; // time (ms) to subtract from frame timestamps, is the
+                         // difference of the time capture and recording began.
 void VideoWriterThread() {
 
   while (true) {
     int capIdx = frameCaptureIdx.load();
     int fileIdx = frameFileIdx.load(); 
 
-    if (endProgram.load() && fileIdx == modulo_positive(capIdx-1,nFrames) ) {
-      break;
-    }
+    if (endProgram.load() && fileIdx == capIdx) break;
+    if (fileIdx == capIdx) continue;
 
-    if (capIdx <= 0 || fileIdx == capIdx-1) {
-      continue;
-    }
+    // if (endProgram.load() && fileIdx == modulo_positive(capIdx-1,nFrames) ) {
+    //   break;
+    // }
+    // if (capIdx <= 0 || fileIdx == capIdx-1) {
+    //   continue;
+    // }
 
-    frameFileIdx.store((fileIdx+1) % nFrames);
-    fileIdx = frameFileIdx.load();
-
+    fileIdx = (fileIdx+1) % nFrames;
     RgbdFrame& f = frames[fileIdx];
 
     // auto start=std::chrono::high_resolution_clock::now();
@@ -183,10 +184,10 @@ void VideoWriterThread() {
     tsStr += (std::to_string(f.colorTs[nDevices-1]) + ", " +
               std::to_string(f.depthTs[nDevices-1]) + ", " +
               std::to_string(f.collectionTs) + "\n");
-
     logFile << tsStr;
-
     totalFrames++;
+
+    frameFileIdx.store(fileIdx);
   }
 
   delete videoWriter;
@@ -204,6 +205,14 @@ void CaptureThread() {
 
   while (true) {
     int capIdx = frameCaptureIdx.load();
+    int fileIdx = frameFileIdx.load();
+
+    if (endProgram.load()) break;
+    if (((capIdx+1) % nFrames) == fileIdx) continue;
+
+    // if (modulo_positive(fileIdx-1, nFrames) == capIdx) continue;
+    capIdx = (capIdx+1) % nFrames;
+
     bool isValid = true;
     for (int i=0; i<nDevices; i++) {
       bool status = cameras[i]->GetFrame(rgb, depth, rgbTs, depthTs);
@@ -225,10 +234,11 @@ void CaptureThread() {
       frames[capIdx].colorTs[i] = rgbTs;
       frames[capIdx].depthTs[i] = depthTs;
     }
+    frameCaptureIdx.store(capIdx);
 
     // totalFrames++;
-    frameCaptureIdx.store((capIdx+1) % nFrames);
-    if (endProgram.load()) break;
+    // frameCaptureIdx.store((capIdx+1) % nFrames);
+    // if (endProgram.load()) break;
   }
 }
 
@@ -388,7 +398,8 @@ int main(int argc, const char * argv[]) {
 
   // Finished processing command line options
 
-  frameCaptureIdx.store(0);
+  // frameCaptureIdx.store(0);
+  frameCaptureIdx.store(-1);
   frameDisplayIdx.store(-1);
   frameFileIdx.store(-1);
   nDevices = 0;
