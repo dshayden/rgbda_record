@@ -1,0 +1,16 @@
+1. Install Homebrew
+  a. Open Terminal
+  b. Type
+    /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+2. Install Dependencies
+  a. Type
+    brew tap homebrew/science
+    brew install libusb ffmpeg opencv3 portaudio libsndfile
+
+  b. You may need to install XCode; do so by opening the App Store, searching
+     for and installing XCode.
+
+3. Run Program
+  a. Plug Kinect2 into the computer
+  b. Double click rgbda_record or run in terminal (type rgbda_record --help for
+     settings)
