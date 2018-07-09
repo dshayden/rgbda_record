@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2017- David S. Hayden - All Rights Reserved.
+*/
+
+
 #include <opencv2/opencv.hpp>
 
 #include "VideoWriter.hpp"

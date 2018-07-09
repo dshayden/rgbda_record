@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2017- David S. Hayden - All Rights Reserved.
+*/
+
+
 #include <iostream>
 #include <string>
 #include <vector>

@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2017- David S. Hayden - All Rights Reserved.
+*/
+
 #ifndef AUDIORECORDER_H
 #define AUDIORECORDER_H
 
